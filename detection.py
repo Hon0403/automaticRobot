@@ -27,30 +27,16 @@ def enhance_image(image):
     # 轉換圖像的 shape 從 (channels, height, width) 變回 (height, width, channels)
     enhanced_image = np.transpose(enhanced_image, (1, 2, 0))  # (640, 640, 3)
     
-    # 對比度和亮度調整
+    # 對比度和亮度調整，但不改變顏色
     enhanced_image = cv2.convertScaleAbs(enhanced_image, alpha=alpha, beta=beta)
     
-    kernel = np.array([[0, -1, 0], [-1, 5, -1], [0, -1, 0]])  # 銳化內核
-
-    # 添加調試輸出
-    print("Original Image Shape:", image.shape)
-    print("Enhanced Image Shape:", enhanced_image.shape)
-    print("Kernel Shape:", kernel.shape)
-    
-    # 檢查圖像是否為 3 通道 (640, 640, 3)
-    if enhanced_image.shape != (640, 640, 3):
-        print(f"Error: Incorrect image shape {enhanced_image.shape}")
-        return None
-    
-    # 應用銳化濾波器
-    sharpened_image = cv2.filter2D(enhanced_image, -1, kernel)
-    
-    # 將圖像轉換為 float32 類型並歸一化
-    sharpened_image = sharpened_image.astype(np.float32) / 255.0
+    # 確保顏色保持不變
+    enhanced_image = cv2.cvtColor(enhanced_image, cv2.COLOR_BGR2RGB)
     
     # 將圖像轉回 (channels, height, width) 的順序，並添加 batch 維度
-    sharpened_image = np.transpose(sharpened_image, (2, 0, 1))  # (3, 640, 640)
-    return np.expand_dims(sharpened_image, axis=0)  # (1, 3, 640, 640)
+    enhanced_image = enhanced_image.astype(np.float32) / 255.0
+    enhanced_image = np.transpose(enhanced_image, (2, 0, 1))  # (3, 640, 640)
+    return np.expand_dims(enhanced_image, axis=0)  # (1, 3, 640, 640)
 
 def start_detection(folder_path, model_file, window_title, resolution, wait_time, show_detection):
     model_path = os.path.join(folder_path, model_file)
