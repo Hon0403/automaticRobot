@@ -13,8 +13,9 @@ from window_capture import WindowCapture
 from detection import YOLODetector
 from coordinate_system import CoordinateTransformer
 from quadtree import QuadTree, Rectangle, Point
-from action_controller import ActionController
-from map_boundary import MapBoundaryManager
+from MapMemory import MapMemory
+from CollisionSystem import CollisionSystem
+from AutoBattleSystem import AutoBattleSystem
 
 class AutoMapleGUI:
     def __init__(self, root):
@@ -28,11 +29,14 @@ class AutoMapleGUI:
         self.detector = None
         self.coordinate_transformer = None
         self.quad_tree = None
-        self.action_controller = None
         self.running = False
         self.detection_thread = None
-        self.boundary_manager = MapBoundaryManager()
         self.current_image = None
+        
+        # 初始化地圖記憶、碰撞系統和自動打怪系統
+        self.map_memory = MapMemory()
+        self.collision_system = CollisionSystem(self.map_memory)
+        self.auto_battle = None
         
         # 創建主框架
         self.main_frame = ttk.Frame(self.root, padding=10)
@@ -80,7 +84,7 @@ class AutoMapleGUI:
         browse_btn = ttk.Button(model_frame, text="瀏覽", command=self.browse_model)
         browse_btn.pack(side=tk.RIGHT, padx=5)
         
-        # 操作按鈕區
+        # 檢測按鈕區
         button_frame = ttk.Frame(parent)
         button_frame.pack(fill=tk.X, pady=10)
         
@@ -89,6 +93,16 @@ class AutoMapleGUI:
         
         self.stop_btn = ttk.Button(button_frame, text="停止檢測", command=self.stop_detection, state=tk.DISABLED)
         self.stop_btn.pack(fill=tk.X, pady=2)
+        
+        # 自動打怪控制區
+        battle_frame = ttk.LabelFrame(parent, text="自動打怪控制", padding=5)
+        battle_frame.pack(fill=tk.X, pady=5)
+        
+        self.start_battle_btn = ttk.Button(battle_frame, text="開始自動打怪", command=self.start_auto_battle)
+        self.start_battle_btn.pack(fill=tk.X, pady=2)
+        
+        self.stop_battle_btn = ttk.Button(battle_frame, text="停止自動打怪", command=self.stop_auto_battle, state=tk.DISABLED)
+        self.stop_battle_btn.pack(fill=tk.X, pady=2)
     
     def create_display_panel(self, parent):
         # 圖像顯示區
@@ -181,21 +195,13 @@ class AutoMapleGUI:
             self.coordinate_transformer = CoordinateTransformer(minimap_rect)
             
             # 初始化四叉樹
-            world_bounds = self.boundary_manager.get_current_bounds()
+            world_bounds = (0, 0, 5000, 3000)  # 初始邊界
             x_center = (world_bounds[0] + world_bounds[2]) / 2
             y_center = (world_bounds[1] + world_bounds[3]) / 2
             width = world_bounds[2] - world_bounds[0]
             height = world_bounds[3] - world_bounds[1]
             boundary = Rectangle(x_center, y_center, width, height)
             self.quad_tree = QuadTree(boundary, capacity=4)
-            
-            # 創建動作控制器
-            self.action_controller = ActionController(
-                self.window_capture,
-                self.detector,
-                self.coordinate_transformer,
-                self.quad_tree
-            )
             
             # 更新按鈕狀態
             self.start_btn.config(state=tk.DISABLED)
@@ -230,6 +236,9 @@ class AutoMapleGUI:
                 # 更新四叉樹
                 self.update_quad_tree(detections)
                 
+                # 更新碰撞系統
+                self.collision_system.update_from_detections(detections, self.coordinate_transformer)
+                
                 # 繪製檢測結果
                 self.draw_detections(screen.copy(), detections)
                 
@@ -254,11 +263,17 @@ class AutoMapleGUI:
                     if world_pos:
                         point = Point(world_pos[0], world_pos[1], detection)
                         self.quad_tree.insert(point)
+                        
+                        # 更新地圖記憶
+                        if detection["class"] == "minimap_player":
+                            self.map_memory.update_player_position(world_pos)
+                        elif detection["class"] in ["game_portal", "minimap_portal"]:
+                            self.map_memory.add_object("portal", world_pos, detection)
+                        elif detection["class"] == "climbable_object":
+                            self.map_memory.add_object("rope", world_pos, detection)
+                            
                 except Exception as e:
                     self.log(f"添加檢測點到四叉樹時出錯: {e}")
-                    
-            # 更新邊界管理器
-            self.boundary_manager.update_from_detections(detections, self.coordinate_transformer)
         except Exception as e:
             self.log(f"更新四叉樹出錯: {str(e)}")
     
@@ -270,27 +285,34 @@ class AutoMapleGUI:
                 label = detection["class"]
                 confidence = detection["confidence"]
                 
+                # 根據類別選擇顏色
+                color = (0, 255, 0)  # 默認綠色
+                if label == "minimap_player":
+                    color = (255, 0, 0)  # 藍色
+                elif label in ["game_portal", "minimap_portal"]:
+                    color = (0, 0, 255)  # 紅色
+                elif label == "climbable_object":
+                    color = (255, 255, 0)  # 青色
+                
                 # 繪製矩形框
-                cv2.rectangle(image, (int(x1), int(y1)), (int(x2), int(y2)), (0, 255, 0), 2)
+                cv2.rectangle(image, (int(x1), int(y1)), (int(x2), int(y2)), color, 2)
                 
                 # 繪製標籤
                 cv2.putText(image, f"{label} {confidence:.2f}",
                             (int(x1), int(y1) - 10), cv2.FONT_HERSHEY_SIMPLEX,
-                            0.5, (0, 255, 0), 2)
+                            0.5, color, 2)
             
-            # 繪製動態邊界
-            try:
-                bounds = self.boundary_manager.get_current_bounds()
-                tl = self.coordinate_transformer.world_to_screen((bounds[0], bounds[1]))
-                br = self.coordinate_transformer.world_to_screen((bounds[2], bounds[3]))
+            # 繪製碰撞框（如果有的話）
+            if hasattr(self, 'collision_system') and self.collision_system.player_box:
+                player_box = self.collision_system.player_box
+                screen_pos = self.coordinate_transformer.world_to_screen((player_box.x1, player_box.y1))
+                screen_pos2 = self.coordinate_transformer.world_to_screen((player_box.x2, player_box.y2))
                 
-                if tl and br:  # 確保座標有效
+                if screen_pos and screen_pos2:
                     cv2.rectangle(image, 
-                                (int(tl[0]), int(tl[1])), 
-                                (int(br[0]), int(br[1])), 
-                                (255, 0, 0), 1)
-            except:
-                pass  # 忽略邊界繪製錯誤
+                                 (int(screen_pos[0]), int(screen_pos[1])), 
+                                 (int(screen_pos2[0]), int(screen_pos2[1])), 
+                                 (0, 255, 255), 1)
             
             # 調整圖像大小以適應畫布
             canvas_width = self.canvas.winfo_width()
@@ -332,10 +354,54 @@ class AutoMapleGUI:
             anchor=tk.CENTER
         )
     
+    def start_auto_battle(self):
+        """啟動自動打怪系統"""
+        if not all([self.detector, self.window_capture, self.coordinate_transformer]):
+            messagebox.showerror("錯誤", "請先開始檢測")
+            return
+        
+        try:
+            # 初始化自動打怪系統
+            self.auto_battle = AutoBattleSystem(
+                detector=self.detector,
+                window_capture=self.window_capture,
+                coordinate_transformer=self.coordinate_transformer,
+                map_memory=self.map_memory,
+                collision_system=self.collision_system
+            )
+            
+            # 啟動自動打怪
+            self.auto_battle.start()
+            
+            # 更新按鈕狀態
+            self.start_battle_btn.config(state=tk.DISABLED)
+            self.stop_battle_btn.config(state=tk.NORMAL)
+            
+            self.log("自動打怪已啟動")
+        except Exception as e:
+            import traceback
+            traceback.print_exc()
+            self.log(f"啟動自動打怪失敗: {str(e)}")
+    
+    def stop_auto_battle(self):
+        """停止自動打怪系統"""
+        if self.auto_battle:
+            self.auto_battle.stop()
+        
+        self.start_battle_btn.config(state=tk.NORMAL)
+        self.stop_battle_btn.config(state=tk.DISABLED)
+        self.log("自動打怪已停止")
+    
     def stop_detection(self):
         self.running = False
+        
+        # 停止自動打怪
+        if self.auto_battle:
+            self.auto_battle.stop()
+        
         if self.detection_thread and self.detection_thread.is_alive():
             self.detection_thread.join(timeout=1.0)
+        
         self.start_btn.config(state=tk.NORMAL)
         self.stop_btn.config(state=tk.DISABLED)
         self.log("停止檢測")
@@ -352,8 +418,18 @@ class AutoMapleGUI:
         self.log_text.see(tk.END)  # 自動滾動到底部
     
     def on_closing(self):
+        # 停止所有執行中的線程
+        self.running = False
+        
+        # 停止自動打怪
+        if self.auto_battle:
+            self.auto_battle.stop()
+        
+        # 保存地圖數據
+        if hasattr(self, 'map_memory'):
+            self.map_memory.save_map()
+        
         if messagebox.askokcancel("退出", "確定要退出程式嗎?"):
-            self.running = False
             self.root.destroy()
             sys.exit(0)
 
