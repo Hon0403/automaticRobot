@@ -2,7 +2,7 @@ import time
 import random
 import win32api
 import math
-from action_controller import ActionController
+from AutoBattleSystem import ActionController
 
 def auto_move_task(window_capture, detector, coordinate_transformer, quad_tree, target_positions):
     """自動移動任務循環"""
