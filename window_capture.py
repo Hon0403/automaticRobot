@@ -1,30 +1,75 @@
-# window_capture.py
 import pygetwindow as gw
 import pyautogui
 import numpy as np
 import cv2
+import win32gui
 
-def capture_window(window_title, target_size=(640, 640)):
-    window = gw.getWindowsWithTitle(window_title)[0]
-    if window:
-        width, height = window.width, window.height
-        left, top = window.left, window.top
-        bbox = (left, top, width, height)
-        screenshot = pyautogui.screenshot(region=bbox)
-        img = np.array(screenshot)
+class WindowCapture:
+    def __init__(self, window_title=None, hwnd=None):
+        """初始化視窗捕獲器
         
-        # 調整圖像大小
-        resized_img = cv2.resize(img, target_size)
-        return resized_img
-    else:
-        print("無法獲取選定的視窗")
-        return None
-
-def show_selected_window(window_title):
-    screenshot = capture_window(window_title)
-    if screenshot is not None:
-        # 保持原始顏色，不轉換為灰度圖像
-        cv2.imwrite(f'{window_title}.png', cv2.cvtColor(screenshot, cv2.COLOR_RGB2BGR))  # 保存圖像
-        print(f"圖像已保存為 '{window_title}.png'")
-    else:
-        print("無法捕獲選定的視窗")
+        參數:
+            window_title: 視窗標題
+            hwnd: 視窗句柄（如果提供，則優先使用）
+        """
+        self.window_title = window_title
+        self.hwnd = hwnd
+        
+        # 如果提供了句柄，則嘗試獲取視窗標題
+        if hwnd and not window_title:
+            self.window_title = win32gui.GetWindowText(hwnd)
+    
+    def capture(self):
+        """捕獲視窗畫面"""
+        try:
+            # 優先使用視窗標題查找
+            if self.window_title:
+                windows = gw.getWindowsWithTitle(self.window_title)
+                if windows:
+                    window = windows[0]
+                    
+                    # 獲取視窗位置和大小
+                    left, top = window.left, window.top
+                    width, height = window.width, window.height
+                    
+                    # 使用 pyautogui 截圖
+                    screenshot = pyautogui.screenshot(region=(left, top, width, height))
+                    
+                    # 轉換為 numpy 數組
+                    img = np.array(screenshot)
+                    
+                    # 轉換顏色空間 (RGB 轉 BGR)
+                    img = cv2.cvtColor(img, cv2.COLOR_RGB2BGR)
+                    
+                    return img
+            
+            return None
+        except Exception as e:
+            print(f"捕獲視窗時出錯: {e}")
+            return None
+    
+    def get_window_rect(self):
+        """獲取視窗矩形位置"""
+        try:
+            if self.window_title:
+                windows = gw.getWindowsWithTitle(self.window_title)
+                if windows:
+                    window = windows[0]
+                    return (window.left, window.top, window.width, window.height)
+            return None
+        except Exception as e:
+            print(f"獲取視窗位置時出錯: {e}")
+            return None
+    
+    @staticmethod
+    def list_window_names():
+        """列出所有可見視窗名稱和句柄"""
+        windows = []
+        
+        def callback(hwnd, windows):
+            if win32gui.IsWindowVisible(hwnd) and win32gui.GetWindowText(hwnd):
+                windows.append((hwnd, win32gui.GetWindowText(hwnd)))
+            return True
+        
+        win32gui.EnumWindows(callback, windows)
+        return windows
