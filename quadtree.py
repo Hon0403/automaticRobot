@@ -1,213 +1,192 @@
+import numpy as np
+import math
+
 class Point:
-    """表示二維空間中的一個點"""
+    """二維空間中的點"""
     def __init__(self, x, y, data=None):
         self.x = x
         self.y = y
-        self.data = data  # 可選的附加數據
-
-class QuadTreeNode:
-    """四叉樹節點實現"""
-    def __init__(self, boundary, capacity=4, max_level=10, level=0):
-        self.boundary = boundary
-        self.capacity = capacity
-        self.points = []
-        self.divided = False
-        self.level = level
-        self.max_level = max_level
-        self.top_left_node = None  # northwest
-        self.top_right_node = None  # northeast
-        self.bottom_left_node = None  # southwest
-        self.bottom_right_node = None  # southeast
+        self.data = data
         
-    def insert(self, point):
-        """將點插入到四叉樹節點"""
-        if not self.boundary.contains(point):
-            return False
-            
-        if len(self.points) < self.capacity and not self.divided:
-            self.points.append(point)
-            return True
-            
-        if not self.divided:
-            self.subdivide()
-            
-        if self.top_left_node.insert(point) or \
-           self.top_right_node.insert(point) or \
-           self.bottom_left_node.insert(point) or \
-           self.bottom_right_node.insert(point):
-            return True
+    def __str__(self):
+        return f"Point({self.x}, {self.y})"
         
-        return False
-        
-    def subdivide(self):
-        """將節點分為四個子節點"""
-        x = self.boundary.x
-        y = self.boundary.y
-        w = self.boundary.width / 2
-        h = self.boundary.height / 2
-        
-        nw = Rectangle(x - w/2, y - h/2, w, h)
-        ne = Rectangle(x + w/2, y - h/2, w, h)
-        sw = Rectangle(x - w/2, y + h/2, w, h)
-        se = Rectangle(x + w/2, y + h/2, w, h)
-        
-        self.top_left_node = QuadTreeNode(nw, self.capacity, self.max_level, self.level + 1)
-        self.top_right_node = QuadTreeNode(ne, self.capacity, self.max_level, self.level + 1)
-        self.bottom_left_node = QuadTreeNode(sw, self.capacity, self.max_level, self.level + 1)
-        self.bottom_right_node = QuadTreeNode(se, self.capacity, self.max_level, self.level + 1)
-        
-        self.divided = True
-        
-    def query_range(self, range_rect):
-        """查詢指定範圍內的所有點"""
-        found = []
-        
-        if not self.boundary.intersects(range_rect):
-            return found
-            
-        for point in self.points:
-            if range_rect.contains(point):
-                found.append(point)
-                
-        if self.divided:
-            found.extend(self.top_left_node.query_range(range_rect))
-            found.extend(self.top_right_node.query_range(range_rect))
-            found.extend(self.bottom_left_node.query_range(range_rect))
-            found.extend(self.bottom_right_node.query_range(range_rect))
-            
-        return found
-        
-    def clear(self):
-        """清空四叉樹"""
-        self.points = []
-        self.divided = False
-        self.top_left_node = None
-        self.top_right_node = None
-        self.bottom_left_node = None
-        self.bottom_right_node = None
-
+    def distance_to(self, other):
+        """計算與另一個點的距離"""
+        dx = self.x - other.x
+        dy = self.y - other.y
+        return math.sqrt(dx * dx + dy * dy)
 
 class Rectangle:
-    """表示二維空間中的矩形邊界"""
+    """二維空間中的矩形"""
     def __init__(self, x, y, width, height):
         self.x = x
         self.y = y
         self.width = width
         self.height = height
-
+        
     def contains(self, point):
-        """判斷某點是否在矩形內"""
-        return (self.x - self.width / 2 <= point.x <= self.x + self.width / 2 and
-                self.y - self.height / 2 <= point.y <= self.y + self.height / 2)
-
-    def intersects(self, range_rect):
-        """判斷矩形是否與另一個矩形相交"""
-        return not (range_rect.x - range_rect.width / 2 > self.x + self.width / 2 or
-                    range_rect.x + range_rect.width / 2 < self.x - self.width / 2 or
-                    range_rect.y - range_rect.height / 2 > self.y + self.height / 2 or
-                    range_rect.y + range_rect.height / 2 < self.y - self.height / 2)
+        """檢查矩形是否包含點"""
+        return (point.x >= self.x and 
+                point.x <= self.x + self.width and
+                point.y >= self.y and
+                point.y <= self.y + self.height)
+                
+    def intersects(self, other):
+        """檢查是否與另一個矩形相交"""
+        return not (other.x > self.x + self.width or
+                   other.x + other.width < self.x or
+                   other.y > self.y + self.height or
+                   other.y + other.height < self.y)
+                   
+    def intersects_circle(self, center, radius):
+        """檢查是否與圓形相交"""
+        # 計算矩形到圓心的最近點
+        closest_x = max(self.x, min(center.x, self.x + self.width))
+        closest_y = max(self.y, min(center.y, self.y + self.height))
+        
+        # 計算距離
+        dx = center.x - closest_x
+        dy = center.y - closest_y
+        
+        # 檢查距離是否小於等於半徑
+        return (dx * dx + dy * dy) <= (radius * radius)
+        
+    def __str__(self):
+        return f"Rectangle({self.x}, {self.y}, {self.width}, {self.height})"
 
 class QuadTree:
-    """四叉樹實現，用於管理二維空間中的點"""
-    def __init__(self, boundary, capacity):
-        """
-        初始化四叉樹節點
-        :param boundary: Rectangle 類型，表示此節點的邊界
-        :param capacity: int，節點中能容納的最大點數量
-        """
-        self.boundary = boundary
-        self.capacity = capacity
-        self.points = []  # 此節點中的點列表
-        self.divided = False  # 是否已分割為子區域
-
-    def subdivide(self):
-        """將當前節點分為四個子區域"""
+    """四叉樹數據結構"""
+    def __init__(self, boundary, capacity=4, max_depth=10, depth=0):
+        if isinstance(boundary, list) or isinstance(boundary, tuple):
+            # 如果提供的是列表或元組，轉換為Rectangle對象
+            x, y, width, height = boundary
+            self.boundary = Rectangle(x, y, width, height)
+        else:
+            self.boundary = boundary
+            
+        self.capacity = capacity  # 每個節點的最大容量
+        self.points = []          # 保存點
+        self.divided = False      # 是否已分裂
+        self.children = []        # 子節點
+        self.max_depth = max_depth  # 最大深度
+        self.depth = depth        # 當前深度
+        
+    def insert(self, point):
+        """插入點到四叉樹"""
+        # 如果點不在邊界內，則不插入
+        if not self.boundary.contains(point):
+            return False
+        
+        # 如果達到最大深度，則直接添加到當前節點
+        if self.depth >= self.max_depth:
+            self.points.append(point)
+            return True
+            
+        # 如果容量未滿且尚未分裂，則添加到當前節點
+        if len(self.points) < self.capacity and not self.divided:
+            self.points.append(point)
+            return True
+        
+        # 如果容量已滿但尚未分裂，則進行分裂
+        if not self.divided:
+            self._subdivide()
+            
+            # 將當前節點的點重新分配到子節點
+            for p in self.points:
+                self._insert_to_children(p)
+            self.points = []  # 清空當前節點
+        
+        # 嘗試將點插入到子節點
+        return self._insert_to_children(point)
+    
+    def _insert_to_children(self, point):
+        """嘗試將點插入到所有子節點"""
+        for child in self.children:
+            if child.insert(point):
+                return True
+        return False
+    
+    def _subdivide(self):
+        """將當前節點分裂為四個子節點"""
         x = self.boundary.x
         y = self.boundary.y
         w = self.boundary.width / 2
         h = self.boundary.height / 2
-
-        nw = Rectangle(x - w / 2, y - h / 2, w, h)
-        ne = Rectangle(x + w / 2, y - h / 2, w, h)
-        sw = Rectangle(x - w / 2, y + h / 2, w, h)
-        se = Rectangle(x + w / 2, y + h / 2, w, h)
-
-        # 創建四個子四叉樹節點
-        self.northwest = QuadTree(nw, self.capacity)
-        self.northeast = QuadTree(ne, self.capacity)
-        self.southwest = QuadTree(sw, self.capacity)
-        self.southeast = QuadTree(se, self.capacity)
-
-        # 標記為已分割
+        
+        # 創建四個子節點
+        ne = QuadTree(Rectangle(x + w, y, w, h), self.capacity, self.max_depth, self.depth + 1)
+        nw = QuadTree(Rectangle(x, y, w, h), self.capacity, self.max_depth, self.depth + 1)
+        se = QuadTree(Rectangle(x + w, y + h, w, h), self.capacity, self.max_depth, self.depth + 1)
+        sw = QuadTree(Rectangle(x, y + h, w, h), self.capacity, self.max_depth, self.depth + 1)
+        
+        self.children = [ne, nw, se, sw]
         self.divided = True
-
-    def insert(self, point):
-        """
-        將一個點插入到四叉樹中
-        :param point: Point 類型，要插入的點
-        :return: bool，插入成功返回 True，否則返回 False
-        """
-        if not self.boundary.contains(point):
-            return False
-
-        if len(self.points) < self.capacity:
-            # 如果當前節點未滿，直接添加到此節點中
-            self.points.append(point)
-            return True
-
-        if not self.divided:
-            # 如果已滿且未分割，則進行分割
-            self.subdivide()
-
-        # 嘗試將點插入到子區域中
-        if (self.northwest.insert(point) or 
-            self.northeast.insert(point) or 
-            self.southwest.insert(point) or 
-            self.southeast.insert(point)):
-            return True
-
-    def query(self, range_rect, found=None):
-        """
-        查詢指定範圍內的所有點
-        :param range_rect: Rectangle 類型，指定查詢範圍
-        :param found: list，用於存儲查詢結果（默認為空列表）
-        :return: list，範圍內的所有點列表
-        """
-        if found is None:
-            found = []
-
+    
+    def query_range(self, range_rect):
+        """查詢範圍內的所有點"""
+        # 如果範圍矩形是列表或元組，轉換為Rectangle對象
+        if isinstance(range_rect, list) or isinstance(range_rect, tuple):
+            x, y, width, height = range_rect
+            range_rect = Rectangle(x, y, width, height)
+            
+        found_points = []
+        
+        # 如果範圍與當前節點邊界不相交，則返回空
         if not self.boundary.intersects(range_rect):
-            # 如果查詢範圍與當前節點無交集，直接返回空結果
-            return found
-
+            return found_points
+        
+        # 檢查當前節點的點
         for point in self.points:
             if range_rect.contains(point):
-                found.append(point)
-
+                found_points.append(point)
+        
+        # 如果已分裂，則遞歸查詢子節點
         if self.divided:
-            # 遞歸查詢子區域
-            self.northwest.query(range_rect, found)
-            self.northeast.query(range_rect, found)
-            self.southwest.query(range_rect, found)
-            self.southeast.query(range_rect, found)
-
-        return found
-
-# 測試代碼示例：
-if __name__ == "__main__":
-    # 定義空間邊界和四叉樹容量
-    boundary = Rectangle(0, 0, 200, 200)
-    qt = QuadTree(boundary, capacity=4)
-
-    # 插入一些測試點
-    points = [Point(50, 50), Point(-50, -50), Point(100, 100), Point(-100, -100)]
-    for p in points:
-        qt.insert(p)
-
-    # 查詢某個範圍內的所有點
-    query_range = Rectangle(0, 0, 100, 100)
-    found_points = qt.query(query_range)
-
-    print(f"Found {len(found_points)} points in the query range.")
-    for p in found_points:
-        print(f"Point({p.x}, {p.y})")
+            for child in self.children:
+                found_points.extend(child.query_range(range_rect))
+        
+        return found_points
+    
+    def query_circle(self, center, radius):
+        """查詢圓形範圍內的所有點"""
+        found_points = []
+        
+        # 如果圓形與當前節點邊界不相交，則返回空
+        if not self.boundary.intersects_circle(center, radius):
+            return found_points
+        
+        # 檢查當前節點的點
+        for point in self.points:
+            dx = point.x - center.x
+            dy = point.y - center.y
+            distance_squared = dx * dx + dy * dy
+            if distance_squared <= radius * radius:
+                found_points.append(point)
+        
+        # 如果已分裂，則遞歸查詢子節點
+        if self.divided:
+            for child in self.children:
+                found_points.extend(child.query_circle(center, radius))
+        
+        return found_points
+    
+    def get_all_points(self):
+        """獲取四叉樹中的所有點"""
+        all_points = self.points.copy()
+        
+        if self.divided:
+            for child in self.children:
+                all_points.extend(child.get_all_points())
+        
+        return all_points
+    
+    def clear(self):
+        """清空四叉樹"""
+        self.points = []
+        self.divided = False
+        self.children = []
+        
+    def __str__(self):
+        """字符串表示"""
+        return f"QuadTree({self.boundary}, {len(self.points)} points, {len(self.children)} children)"

@@ -161,3 +161,91 @@ class MapMemory:
     def _distance(self, pos1, pos2):
         """計算兩點之間的距離"""
         return ((pos1[0] - pos2[0]) ** 2 + (pos1[1] - pos2[1]) ** 2) ** 0.5
+    
+    def detect_platform_edges(self):
+        """檢測平台邊緣"""
+        platform_edges = {}
+    
+        # 遍歷已探索區域
+        for cell_x, cell_y in self.explored_cells:
+            key = f"{cell_x},{cell_y}"
+        
+            # 檢查是否為平台
+            if key in self.map_grid and self.map_grid[key]["type"] == "explored":
+                # 檢查下方是否為空氣（平台邊緣）
+                below_key = f"{cell_x},{cell_y+1}"
+                if below_key not in self.map_grid:
+                    # 這是一個平台邊緣
+                    if cell_y not in platform_edges:
+                        platform_edges[cell_y] = []
+                    platform_edges[cell_y].append(cell_x)
+    
+        # 合併相鄰的邊緣點形成完整平台
+        platforms = []
+        for y_level, x_points in platform_edges.items():
+            x_points.sort()
+            current_platform = {"y_level": y_level * self.cell_size, "x_min": x_points[0] * self.cell_size}
+        
+            for i in range(1, len(x_points)):
+                if x_points[i] > x_points[i-1] + 1:  # 不連續的點
+                    current_platform["x_max"] = x_points[i-1] * self.cell_size
+                    platforms.append(current_platform)
+                    current_platform = {"y_level": y_level * self.cell_size, "x_min": x_points[i] * self.cell_size}
+        
+            current_platform["x_max"] = x_points[-1] * self.cell_size
+            platforms.append(current_platform)
+    
+        return platforms
+    
+    def update_terrain_feature(self, position, feature_type, data=None):
+        """動態更新地形特徵"""
+        x, y = position
+        cell_x, cell_y = int(x / self.cell_size), int(y / self.cell_size)
+        key = f"{cell_x},{cell_y}"
+    
+        # 更新網格信息
+        if feature_type == "platform":
+            # 標記為平台
+            self.map_grid[key] = {"type": "platform", "time": time.time(), "data": data}
+        elif feature_type == "obstacle":
+            # 標記為障礙物
+            self.map_grid[key] = {"type": "obstacle", "time": time.time(), "data": data}
+        elif feature_type == "gap":
+            # 標記為間隙（不可行走）
+            self.map_grid[key] = {"type": "gap", "time": time.time(), "data": data}
+    
+        # 標記為已探索
+        self.explored_cells.add((cell_x, cell_y))
+    
+        # 更新相關連接點
+        self._update_connection_points()
+
+    def _update_connection_points(self):
+        """更新連接點信息（繩索和傳送點的連接平台）"""
+        # 遍歷所有繩索和傳送點
+        for key, value in self.ropes.items():
+            position = value["position"]
+            x, y = position
+            cell_x, cell_y = int(x / self.cell_size), int(y / self.cell_size)
+        
+            # 查找繩索上下連接的平台
+            platforms = []
+        
+            # 向上查找平台
+            for dy in range(-20, 0):
+                check_key = f"{cell_x},{cell_y+dy}"
+                if check_key in self.map_grid and self.map_grid[check_key]["type"] == "platform":
+                    platforms.append((cell_x, cell_y+dy))
+                    break
+        
+            # 向下查找平台
+            for dy in range(1, 21):
+                check_key = f"{cell_x},{cell_y+dy}"
+                if check_key in self.map_grid and self.map_grid[check_key]["type"] == "platform":
+                    platforms.append((cell_x, cell_y+dy))
+                    break
+        
+            # 更新繩索連接的平台信息
+            self.ropes[key]["connects"] = platforms
+
+
