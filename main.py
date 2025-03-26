@@ -5,6 +5,7 @@ import threading
 import time
 import sys
 import cv2
+from pynput import keyboard
 import numpy as np
 import win32gui
 from PIL import Image, ImageTk
@@ -43,6 +44,10 @@ class MapleController:
         self.minimap_model_path = "MODELS/SmallObjects.pt"
         self.terrain_model_path = "MODELS/QuadRecognizer.pt"
         
+        # 新增：設置按鍵監聽
+        self.keyboard_listener = keyboard.Listener(on_press=self.on_key_press)
+        self.keyboard_listener.start()
+
         # 控制變量
         self.running = False
         self.detection_thread = None
@@ -263,18 +268,18 @@ class MapleController:
                 # 僅使用主畫面角色進行射線檢測
                 if main_player_pos:  # 只在找到主畫面角色時執行
                     print(f"使用主畫面角色位置進行射線檢測: {main_player_pos}")
-                    # 添加扇形視覺化
+                    # 根據當前朝向設定扇形角度
                     fan_radius = 100  # 扇形半徑
-                    fan_start_angle = -30  # 起始角度
-                    fan_end_angle = 30  # 結束角度
-                    fan_color = (0, 255, 255)  # 黃色
 
                     # 根據角色朝向決定扇形方向
-                    facing_direction = "right"  # 可根據移動方向等判斷
-                    if facing_direction == "right":
+                    if self.facing_direction == "right":
                         start_angle, end_angle = -30, 30
-                    else:  # 向左
+                    elif self.facing_direction == "left":
                         start_angle, end_angle = 150, 210
+                    elif self.facing_direction == "up":
+                        start_angle, end_angle = 60, 120
+                    elif self.facing_direction == "down":
+                        start_angle, end_angle = -120, -60
 
                     # 使用主畫面角色位置繪製扇形
                     visualization_img = draw_fan_shape(
@@ -290,7 +295,7 @@ class MapleController:
                     # 執行並視覺化射線檢測（使用地形物件）
                     gap_info = self.collision_system.detect_platform_gaps(
                         start_pos=main_player_pos,
-                        direction="right",
+                        direction=self.facing_direction,
                         max_distance=150,
                         visualization_img=visualization_img,
                         terrain_objects=terrain_objects
@@ -428,7 +433,8 @@ class MapleController:
                 window_capture=self.window_capture,
                 detector=self.detector,
                 monster_detector=self.monster_detector,
-                coordinate_transformer=self.coordinate_transformer
+                coordinate_transformer=self.coordinate_transformer,
+                controller=self
             )
             
             # 啟動自動戰鬥
@@ -601,6 +607,24 @@ class MapleController:
                 
         except Exception as e:
             self.ui.log(f"切換怪物檢測狀態時發生錯誤: {str(e)}")
+
+    def on_key_press(self, key):
+        """處理按鍵輸入，更新角色朝向"""
+        try:
+            if key == keyboard.Key.left:
+                self.facing_direction = "left"
+                print("角色朝向: 左")
+            elif key == keyboard.Key.right:
+                self.facing_direction = "right"
+                print("角色朝向: 右")
+            elif key == keyboard.Key.up:
+                self.facing_direction = "up"
+                print("角色朝向: 上")
+            elif key == keyboard.Key.down:
+                self.facing_direction = "down"
+                print("角色朝向: 下")
+        except AttributeError:
+            pass
 
 if __name__ == "__main__":
     root = tk.Tk()

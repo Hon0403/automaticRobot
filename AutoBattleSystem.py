@@ -10,7 +10,7 @@ import traceback
 
 
 class AutoBattleSystem:
-    def __init__(self, window_capture, detector, monster_detector=None, coordinate_transformer=None):
+    def __init__(self, window_capture, detector, monster_detector=None, coordinate_transformer=None, controller=None):
         self.window_capture = window_capture
         self.detector = detector
         self.monster_detector = monster_detector
@@ -19,6 +19,7 @@ class AutoBattleSystem:
         self.cache_result = None
         self.cache_timeout = time.time()
         self.running = True
+        self.controller = controller
 
         # 初始化鍵盤控制器
         self.keyboard = KeyboardController()
@@ -50,30 +51,98 @@ class AutoBattleSystem:
     def _battle_loop(self):
         while self.running:
             try:
-                # 簡化檢測邏輯，直接使用地形檢測
-                frame = self.window_capture.capture()
-                if frame is None:
-                    print("無法捕獲遊戲畫面")
-                    time.sleep(0.5)
-                    continue
-                    
-                # 直接檢測怪物
-                detections = self.detector.detect(frame, model_type='terrain')
-                monsters = [d for d in detections if d.get("class_name", "") == "monster"]
+                # 獲取當前角色朝向
+                current_direction = self.controller.facing_direction
                 
-                if monsters:
-                    # 找最近的怪物
-                    closest = min(monsters, key=lambda d: abs(d["bbox"][0] + d["bbox"][2]) / 2 - frame.shape[1] / 2)
-                    # 向怪物移動
-                    self._move_towards_monster(closest)
+                # 根據朝向選擇不同的攻擊策略
+                if current_direction == "right" or current_direction == "left":
+                    # 水平方向攻擊邏輯
+                    self._horizontal_attack(current_direction)
                 else:
-                    # 隨機移動
-                    self._random_move()
+                    # 垂直方向攻擊邏輯
+                    self._vertical_attack(current_direction)
                     
                 time.sleep(0.2)
             except Exception as e:
                 print(f"戰鬥循環錯誤: {e}")
                 time.sleep(1)
+
+    def _horizontal_attack(self, direction):
+        """處理水平方向(左/右)的攻擊邏輯"""
+        try:
+            # 獲取畫面
+            frame = self.window_capture.capture()
+            if frame is None:
+                return
+                
+            # 選擇目標怪物
+            target = self._select_target()
+            if not target:
+                # 無目標，隨機移動
+                self._random_move()
+                return
+                
+            # 計算移動方向
+            monster_pos = target["position"]
+            screen_center = (frame.shape[1] / 2, frame.shape[0] / 2)
+            
+            # 調整角色朝向目標
+            if monster_pos[0] > screen_center[0] and direction == "left":
+                # 目標在右側但角色面向左側，需要轉向
+                self.keyboard.press(Key.right)
+                time.sleep(0.1)
+                self.keyboard.release(Key.right)
+            elif monster_pos[0] < screen_center[0] and direction == "right":
+                # 目標在左側但角色面向右側，需要轉向
+                self.keyboard.press(Key.left)
+                time.sleep(0.1)
+                self.keyboard.release(Key.left)
+                
+            # 判斷距離
+            distance = self._calculate_distance(screen_center, monster_pos)
+            if distance < 150:
+                # 足夠近，進行攻擊
+                self._attack()
+            else:
+                # 靠近目標
+                self._move_towards_monster(target["detection"])
+                
+        except Exception as e:
+            print(f"水平攻擊錯誤: {str(e)}")
+
+    def _vertical_attack(self, direction):
+        """處理垂直方向(上/下)的攻擊邏輯"""
+        try:
+            # 獲取畫面
+            frame = self.window_capture.capture()
+            if frame is None:
+                return
+                
+            # 選擇目標
+            target = self._select_target()
+            if not target:
+                # 無目標，隨機移動
+                self._random_move()
+                return
+                
+            # 計算垂直距離
+            monster_pos = target["position"]
+            screen_center = (frame.shape[1] / 2, frame.shape[0] / 2)
+            vertical_distance = abs(monster_pos[1] - screen_center[1])
+            
+            if vertical_distance < 100:
+                # 垂直距離較小，直接攻擊
+                self._attack()
+            else:
+                # 移動到合適位置
+                key = Key.up if direction == "up" else Key.down
+                self.keyboard.press(key)
+                time.sleep(0.2)
+                self.keyboard.release(key)
+                
+        except Exception as e:
+            print(f"垂直攻擊錯誤: {str(e)}")
+
 
     def _move_towards_monster(self, monster):
         # 計算怪物中心點

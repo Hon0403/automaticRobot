@@ -167,111 +167,6 @@ class CollisionSystem:
         # 沒有檢測到碰撞
         return {"collision": False}
 
-    def detect_platform_gaps(self, start_pos, direction, max_distance=150, visualization_img=None, terrain_objects=None):
-        """檢測前方是否有平台間隙"""
-        print(f"執行平台間隙檢測: 起始位置={start_pos}, 方向={direction}")
-        
-        # 使用傳入的地形物件或收集已知的平台
-        platforms = []
-        if terrain_objects:
-            platforms = terrain_objects
-        else:
-            # 取得所有平台碰撞盒（原有方法）
-            platforms = [box for box in self.collision_boxes if box.type == "platform"]
-        
-        print(f"目前平台數量: {len(platforms)}")
-        
-        if not platforms:
-            print("未找到平台，無法檢測間隙")
-            return {"gap": False}
-            
-        # 計算方向向量
-        dir_x = 1 if direction == "right" else -1
-        
-        # 用於可視化的顏色
-        ray_color = (0, 255, 255)  # 黃色
-        hit_color = (0, 255, 0)    # 綠色
-        gap_color = (0, 0, 255)    # 紅色
-        
-        # 標記起始點
-        if visualization_img is not None:
-            cv2.circle(visualization_img, 
-                      (int(start_pos[0]), int(start_pos[1])), 
-                      5, (255, 0, 0), -1)
-        
-        # 從玩家位置向前檢測
-        for i in range(1, int(max_distance / 10) + 1):
-            check_x = start_pos[0] + dir_x * 10 * i
-            check_y = start_pos[1]
-            
-            # 如果提供了可視化圖像，繪製水平射線
-            if visualization_img is not None:
-                cv2.line(visualization_img, 
-                        (int(start_pos[0]), int(start_pos[1])), 
-                        (int(check_x), int(check_y)), 
-                        ray_color, 1)
-            
-            # 向下檢測
-            has_ground = False
-            for j in range(1, 15):  # 向下檢測更多單位
-                down_y = check_y + j * 10
-                
-                # 如果提供了可視化圖像，繪製垂直射線
-                if visualization_img is not None:
-                    cv2.line(visualization_img, 
-                            (int(check_x), int(check_y)), 
-                            (int(check_x), int(down_y)), 
-                            ray_color, 1)
-                
-                # 檢查該點下方是否有地面
-                for platform in platforms:
-                    # 處理不同格式的平台數據
-                    if hasattr(platform, 'type') and platform.type == "platform":
-                        # 碰撞盒對象
-                        if platform.contains_point((check_x, down_y)):
-                            has_ground = True
-                            if visualization_img is not None:
-                                cv2.circle(visualization_img, 
-                                        (int(check_x), int(down_y)), 
-                                        3, hit_color, -1)
-                            break
-                    else:
-                        # 直接使用檢測結果
-                        bbox = platform.get("bbox", [])
-                        if len(bbox) == 4:
-                            x1, y1, x2, y2 = bbox
-                            if x1 <= check_x <= x2 and y1 <= down_y <= y2:
-                                has_ground = True
-                                if visualization_img is not None:
-                                    cv2.circle(visualization_img, 
-                                            (int(check_x), int(down_y)), 
-                                            3, hit_color, -1)
-                                break
-                
-                if has_ground:
-                    break
-            
-            if not has_ground:
-                # 如果提供了可視化圖像，標記間隙點
-                if visualization_img is not None:
-                    cv2.circle(visualization_img, 
-                              (int(check_x), int(check_y)), 
-                              5, gap_color, -1)
-                    cv2.putText(visualization_img, 
-                               "間隙!", 
-                               (int(check_x), int(check_y) - 10), 
-                               cv2.FONT_HERSHEY_SIMPLEX, 0.5, gap_color, 2)
-                
-                print(f"在位置({check_x}, {check_y})檢測到平台間隙!")
-                return {"gap": True, "position": (check_x, check_y)}
-        
-        print("未檢測到平台間隙")
-        return {"gap": False}
-
-    def detect_platform_gap(self, start_pos, direction, max_distance=100):
-        """檢測前方是否有平台間隙（別名，保持兼容性）"""
-        return self.detect_platform_gaps(start_pos, direction, max_distance)
-
     def draw_ray_detection(self, image, start_pos, hits, direction="right", max_distance=150, ray_color=(0, 255, 255), hit_color=(255, 0, 0)):
         """視覺化射線檢測結果"""
         # 複製輸入圖像以避免直接修改原圖
@@ -312,3 +207,82 @@ class CollisionSystem:
             cv2.line(result, (start_x, start_y), (hit_x, hit_y), hit_color, 2, cv2.LINE_AA)
         
         return result
+    
+    def detect_platform_gaps(self, start_pos, direction, max_distance=150, visualization_img=None, terrain_objects=None):
+        """檢測指定方向是否有平台間隙"""
+        print(f"執行平台間隙檢測: 起始位置={start_pos}, 方向={direction}")
+        
+            # 使用傳入的地形物件或收集已知的平台
+        if terrain_objects:
+            platforms = terrain_objects
+        else:
+            # 取得所有平台碰撞盒
+            platforms = [box for box in self.collision_boxes if box.type == "platform"]
+    
+        print(f"目前平台數量: {len(platforms)}")
+    
+        if not platforms:
+            print("未找到平台，無法檢測間隙")
+            return {"gap": False}
+
+        # 計算方向向量
+        dir_x = 1 if direction == "right" else -1 if direction == "left" else 0
+        dir_y = 1 if direction == "down" else -1 if direction == "up" else 0
+        
+        # 用於可視化的顏色
+        ray_color = (0, 255, 255)  # 黃色
+        hit_color = (0, 255, 0)    # 綠色
+        gap_color = (0, 0, 255)    # 紅色
+        
+        # 標記起始點
+        if visualization_img is not None:
+            cv2.circle(
+                visualization_img, 
+                (int(start_pos[0]), int(start_pos[1])), 
+                5, (255, 0, 0), -1
+            )
+        
+        # 從玩家位置向指定方向檢測
+        for i in range(1, int(max_distance / 10) + 1):
+            check_x = start_pos[0] + dir_x * 10 * i
+            check_y = start_pos[1] + dir_y * 10 * i
+            
+            # 繪製射線
+            if visualization_img is not None:
+                cv2.line(
+                    visualization_img, 
+                    (int(start_pos[0]), int(start_pos[1])), 
+                    (int(check_x), int(check_y)), 
+                    ray_color, 1
+                )
+            
+            # 檢測是否有平台/障礙物
+            has_platform = False
+            for platform in platforms:
+                # 處理平台數據
+                bbox = platform.get("bbox", [])
+                if len(bbox) == 4:
+                    x1, y1, x2, y2 = bbox
+                    if x1 <= check_x <= x2 and y1 <= check_y <= y2:
+                        has_platform = True
+                        if visualization_img is not None:
+                            cv2.circle(
+                                visualization_img, 
+                                (int(check_x), int(check_y)), 
+                                3, hit_color, -1
+                            )
+                        break
+            
+            if not has_platform:
+                # 標記間隙點
+                if visualization_img is not None:
+                    cv2.circle(
+                        visualization_img, 
+                        (int(check_x), int(check_y)), 
+                        5, gap_color, -1
+                    )
+                
+                return {"gap": True, "position": (check_x, check_y)}
+        
+        return {"gap": False}
+
